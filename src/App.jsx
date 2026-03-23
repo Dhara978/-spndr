@@ -238,28 +238,49 @@ export default function App() {
     const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
     if(!SR){showToast("Speech not supported in this browser.","err");return;}
     const r=new SR(); r.lang=voiceLang; r.interimResults=false; r.maxAlternatives=1;
-    r.onresult=async ev=>{
-      const t=ev.results[0][0].transcript;
-      setVoiceText(t); setListening(false); setVLoad(true);
-      try {
-       const res = await fetch("https://api.anthropic.com/v1/messages", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    "x-api-key": import.meta.env.VITE_ANTHROPIC_KEY,
-    "anthropic-version": "2023-06-01",
-    "anthropic-dangerous-direct-browser-access": "true"
-  },
-          body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:256,
-            messages:[{role:"user",content:`Parse this expense voice input into JSON. The input may be in any Indian language — translate to English.\nInput: "${t}"\nReturn ONLY valid JSON, no explanation: {"amount":number,"category":"Food|Transport|Shopping|Entertainment|Health|Bills|Education|Other","description":"short English description","type":"UPI|Cash"}`}]})});
-        const d=await res.json();
-        const txt=d.content.map(b=>b.text||"").join("").replace(/```json|```/g,"").trim();
-        const p=JSON.parse(txt);
-        setForm(prev=>({...prev,amount:String(p.amount||""),category:p.category||"Other",description:p.description||"",type:p.type||"UPI"}));
-        showToast("Voice parsed successfully.");
-      } catch { showToast("Could not parse — please fill manually.","warn"); }
-      setVLoad(false);
-    };
+    r.onresult = ev => {
+  const t = ev.results[0][0].transcript;
+  setVoiceText(t);
+  setListening(false);
+
+  const text = t.toLowerCase();
+
+  // detect amount
+  const amtMatch = text.match(/(\d+[\.,]?\d*)/);
+  const amount = amtMatch ? amtMatch[1].replace(",",".") : "";
+
+  // detect payment type
+  const type = (text.includes("upi") || text.includes("online") ||
+    text.includes("gpay") || text.includes("phonepe") ||
+    text.includes("paytm") || text.includes("neft") ||
+    text.includes("transfer")) ? "UPI" : "Cash";
+
+  // detect category
+  let category = "Other";
+  const catMap = {
+    Food:          ["food","eat","lunch","dinner","breakfast","restaurant","hotel","cafe","coffee","snack","grocery","groceries","sabji","khana","nashta","chai","street","sweets","mithai","fruits","vegetable"],
+    Transport:     ["transport","travel","auto","cab","taxi","uber","ola","bus","train","metro","petrol","diesel","fuel","rickshaw","bike","ticket","fare","rick"],
+    Shopping:      ["shopping","clothes","shirt","pant","dress","shoes","amazon","flipkart","order","buy","purchase","market","bazaar","mall","online"],
+    Entertainment: ["movie","cinema","show","concert","game","gaming","netflix","hotstar","youtube","ott","entertainment","fun","ticket","play"],
+    Health:        ["health","medicine","doctor","hospital","clinic","pharmacy","medical","tablet","injection","gym","fitness","checkup","test"],
+    Bills:         ["bill","electricity","wifi","internet","mobile","recharge","phone","water","gas","rent","maintenance","light","bijli","paani"],
+    Education:     ["education","school","college","tuition","course","book","stationery","fees","class","study","exam"],
+  };
+  for(const [cat, keywords] of Object.entries(catMap)){
+    if(keywords.some(k => text.includes(k))){ category = cat; break; }
+  }
+
+  // build description from transcript
+  const description = t.length > 40 ? t.slice(0,40) : t;
+
+  setForm(prev => ({...prev, amount, category, description, type}));
+
+  if(amount){
+    showToast("Voice input captured!");
+  } else {
+    showToast("Heard you — please check the amount.", "warn");
+  }
+};
     r.onerror=e=>{setListening(false);showToast("Mic error: "+e.error,"err");};
     r.onend=()=>setListening(false);
     recRef.current=r; r.start(); setListening(true); setVoiceText("");
