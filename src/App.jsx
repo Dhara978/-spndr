@@ -242,8 +242,14 @@ export default function App() {
       const t=ev.results[0][0].transcript;
       setVoiceText(t); setListening(false); setVLoad(true);
       try {
-        const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",
-          headers:{"Content-Type":"application/json"},
+       const res = await fetch("https://api.anthropic.com/v1/messages", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "x-api-key": import.meta.env.VITE_ANTHROPIC_KEY,
+    "anthropic-version": "2023-06-01",
+    "anthropic-dangerous-direct-browser-access": "true"
+  },
           body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:256,
             messages:[{role:"user",content:`Parse this expense voice input into JSON. The input may be in any Indian language — translate to English.\nInput: "${t}"\nReturn ONLY valid JSON, no explanation: {"amount":number,"category":"Food|Transport|Shopping|Entertainment|Health|Bills|Education|Other","description":"short English description","type":"UPI|Cash"}`}]})});
         const d=await res.json();
