@@ -124,7 +124,7 @@ export default function App() {
   const [period,    setPeriod]    = useState("month");
   const [toast,     setToast]     = useState(null);
   const [undoEntry, setUndoEntry] = useState(null); // {entry, timer}
-  const [exportMode,setExportMode]= useState(false);
+  const [setupAmt, setSetupAmt] = useState("");
   const recRef   = useRef(null);
   const undoTimer= useRef(null);
 
