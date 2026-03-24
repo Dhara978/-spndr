@@ -610,7 +610,6 @@ export default function App() {
 
   /* ═════════════════════════════════════════════════════ BUDGET SETUP ══ */
   if(!targetSet){
-    const [setupAmt,setSetupAmt]=useState("");
     return(
       <div style={{minHeight:"100vh",background:T.bg,display:"flex",flexDirection:"column",
         alignItems:"center",justifyContent:"center",fontFamily:"'DM Sans',sans-serif",padding:24}}>
