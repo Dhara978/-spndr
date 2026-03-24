@@ -154,6 +154,11 @@ export default function App() {
   const [overspendAlert, setOverspendAlert] = useState(null);
   const [notifEnabled,   setNotifEnabled]   = useState(false);
 
+  /* budget tab state — MUST be top-level, not inside BudgetView */
+  const [selMonth,      setSelMonth]      = useState(monthKey(new Date()));
+  const [budgetInput,   setBudgetInput]   = useState("");
+  const [catBudgets,    setCatBudgets]    = useState(DEF_BUDGETS);
+
   const recRef     = useRef(null);
   const undoTimer  = useRef(null);
   const notifSent  = useRef({}); // track which notifications we already sent this session
@@ -237,7 +242,8 @@ export default function App() {
       setAInfo("Creating your account…");
       await sSet(`vi4:auth:${u}`, JSON.stringify({username:u, hash:hashPw(password)}));
       await persist(u, [], DEF_BUDGETS, {}, true, "");
-      setExpenses([]); setBudgets(DEF_BUDGETS); setMonthlyTargets({});
+      setExpenses([]); setBudgets(DEF_BUDGETS); setCatBudgets(DEF_BUDGETS);
+      setMonthlyTargets({});
       setIsDark(true); setPinVal("");
       setAInfo(""); setUser({username:u});
       showToast(`Welcome, ${u}! 🎉`);
@@ -268,6 +274,7 @@ export default function App() {
           const d = JSON.parse(dr.value);
           setExpenses(d.expenses||[]);
           setBudgets(d.budgets||DEF_BUDGETS);
+          setCatBudgets(d.budgets||DEF_BUDGETS);
           setMonthlyTargets(d.monthlyTargets||{});
           setIsDark(d.dark!==false);
           if(d.pin){ setPinVal(d.pin); setLocked(true); setPinMode("lock"); }
@@ -875,43 +882,39 @@ export default function App() {
   };
 
   /* ═══ BUDGET ══════════════════════════════════════════════════════════ */
+  /* All state (selMonth, budgetInput, catBudgets) lives at App top level  */
+  const monthOptions = Array.from({length:6},(_,i)=>{
+    const d=new Date(now.getFullYear(),now.getMonth()-2+i,1);
+    return {key:monthKey(d), label:monthLabel(monthKey(d))};
+  });
+  const selTarget    = monthlyTargets[selMonth]||0;
+  const selMonthExp  = expenses.filter(e=>{
+    const d=new Date(e.date); const [y,m]=selMonth.split("-");
+    return d.getMonth()+1===parseInt(m)&&d.getFullYear()===parseInt(y);
+  });
+  const selTotal = selMonthExp.reduce((s,e)=>s+e.amount,0);
+  const selPct   = selTarget>0?Math.min((selTotal/selTarget)*100,100):0;
+  const selOver  = selTarget>0&&selTotal>selTarget;
+
+  const handleBudgetSave = async () => {
+    const v = parseFloat(budgetInput);
+    if(!budgetInput||budgetInput.trim()===""){
+      showToast("Please enter an amount first.","warn"); return;
+    }
+    if(isNaN(v)||v<=0){
+      showToast("Enter a valid amount greater than 0.","warn"); return;
+    }
+    await saveMonthTarget(selMonth, v);
+    showToast(`✅ Budget set: ${fmt(v)} for ${monthLabel(selMonth)}`);
+  };
+
   const BudgetView=()=>{
-    /* show last 4 months + next month as options */
-    const monthOptions = Array.from({length:6},(_,i)=>{
-      const d=new Date(now.getFullYear(),now.getMonth()-2+i,1);
-      return {key:monthKey(d), label:monthLabel(monthKey(d))};
-    });
-    const [selMonth, setSelMonth] = useState(curKey);
-    const selTarget = monthlyTargets[selMonth]||0;
-    const [inputAmt, setInputAmt] = useState(selTarget>0?String(selTarget):"");
-    const [lb, setLb]             = useState({...budgets});
-    const selMonthExp = expenses.filter(e=>{
-      const d=new Date(e.date);
-      const [y,m]=selMonth.split("-");
-      return d.getMonth()+1===parseInt(m) && d.getFullYear()===parseInt(y);
-    });
-    const selTotal = selMonthExp.reduce((s,e)=>s+e.amount,0);
-    const selPct   = selTarget>0?Math.min((selTotal/selTarget)*100,100):0;
-    const selOver  = selTarget>0 && selTotal>selTarget;
-    const over     = catData.filter(c=>c.spent>c.budget&&c.budget>0);
-
-    const handleSave = async () => {
-      const v = parseFloat(inputAmt);
-      if(isNaN(v) || inputAmt===""){
-        await saveMonthTarget(selMonth, 0);
-        showToast("Budget cleared for "+monthLabel(selMonth));
-      } else if(v>0){
-        await saveMonthTarget(selMonth, v);
-        showToast("✅ Budget set: "+fmt(v)+" for "+monthLabel(selMonth));
-      } else {
-        showToast("Enter a valid amount","warn");
-      }
-    };
-
+    const over = catData.filter(c=>c.spent>c.budget&&c.budget>0);
     return(
       <div style={{padding:"0 16px 124px"}}>
         <div style={{fontFamily:"'DM Serif Display',serif",fontSize:26,color:T.text,marginBottom:20}}>Budget Control</div>
 
+        {/* Overspend warning */}
         {over.length>0&&(
           <div style={{...card({marginBottom:14,borderColor:`${T.a4}30`,background:`${T.a4}07`,padding:"16px"})}}>
             <div style={{fontWeight:600,color:T.a4,marginBottom:10,fontSize:14}}>⚠ Over budget in {over.length} {over.length===1?"category":"categories"}</div>
@@ -924,88 +927,129 @@ export default function App() {
           </div>
         )}
 
-        {/* Monthly budget card */}
+        {/* Monthly budget setter */}
         <div style={{...card({marginBottom:16,background:T.gradSoft,borderColor:T.border})}}>
-          <div style={{fontSize:11,color:T.muted,letterSpacing:1.4,marginBottom:12,fontWeight:600}}>MONTHLY BUDGET</div>
+          <div style={{fontSize:11,color:T.muted,letterSpacing:1.4,marginBottom:14,fontWeight:600}}>SET MONTHLY BUDGET</div>
 
-          {/* Month selector */}
-          <div style={{marginBottom:14}}>
-            <div style={{fontSize:12,color:T.muted,marginBottom:8,fontWeight:500}}>Select Month</div>
+          {/* Month selector pills */}
+          <div style={{marginBottom:16}}>
+            <div style={{fontSize:12,color:T.muted,marginBottom:8,fontWeight:500}}>Choose Month</div>
             <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4,scrollbarWidth:"none"}}>
               {monthOptions.map(({key,label})=>(
-                <button key={key} onClick={()=>{setSelMonth(key);setInputAmt(monthlyTargets[key]?String(monthlyTargets[key]):"");}}
-                  style={{...btn({flexShrink:0,padding:"8px 14px",borderRadius:99,border:`1.5px solid ${selMonth===key?T.a1:T.bdrSub}`,background:selMonth===key?`${T.a1}15`:"transparent",color:selMonth===key?T.a1:T.muted,fontSize:12,whiteSpace:"nowrap",fontWeight:selMonth===key?700:400})}}>
-                  {label}{key===curKey?" (current)":""}
+                <button key={key} onClick={()=>{
+                  setSelMonth(key);
+                  setBudgetInput(monthlyTargets[key]?String(monthlyTargets[key]):"");
+                }} style={{...btn({
+                  flexShrink:0,padding:"8px 14px",borderRadius:99,
+                  border:`1.5px solid ${selMonth===key?T.a1:T.bdrSub}`,
+                  background:selMonth===key?`${T.a1}15`:"transparent",
+                  color:selMonth===key?T.a1:T.muted,
+                  fontSize:12,whiteSpace:"nowrap",
+                  fontWeight:selMonth===key?700:400,
+                })}}>
+                  {label}{key===curKey?" ★":""}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Amount input */}
-          <div style={{fontSize:12,color:T.sub,marginBottom:8}}>
-            Budget for <strong style={{color:T.text}}>{monthLabel(selMonth)}</strong>
+          {/* Current saved budget for this month */}
+          {selTarget>0&&(
+            <div style={{marginBottom:14,padding:"10px 14px",borderRadius:12,background:isDark?"rgba(255,255,255,.05)":"rgba(0,0,0,.04)",border:`1px solid ${T.border}`}}>
+              <div style={{fontSize:11,color:T.muted,marginBottom:4}}>Currently set for {monthLabel(selMonth)}</div>
+              <div style={{fontSize:22,fontWeight:700,color:T.a1,fontFamily:"'JetBrains Mono',monospace"}}>{fmt(selTarget)}</div>
+            </div>
+          )}
+
+          {/* Input row */}
+          <div style={{fontSize:13,color:T.sub,marginBottom:10,fontWeight:500}}>
+            {selTarget>0?"Update budget for ":"Set budget for "}<strong style={{color:T.text}}>{monthLabel(selMonth)}</strong>
           </div>
-          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
-            <span style={{fontFamily:"'DM Serif Display',serif",fontSize:26,color:T.sub}}>₹</span>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+            <span style={{fontFamily:"'DM Serif Display',serif",fontSize:26,color:T.sub,flexShrink:0}}>₹</span>
             <input
-              value={inputAmt}
-              onChange={e=>setInputAmt(e.target.value)}
+              value={budgetInput}
+              onChange={e=>setBudgetInput(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&handleBudgetSave()}
               type="number"
-              placeholder="Enter amount…"
-              style={{flex:1,background:"none",border:"none",outline:"none",borderBottom:`2px solid ${T.border}`,paddingBottom:4,fontSize:32,fontWeight:700,color:T.a1,letterSpacing:-1,fontFamily:"'JetBrains Mono',monospace"}}
+              placeholder="Type amount here…"
+              style={{
+                flex:1,background:"none",border:"none",outline:"none",
+                borderBottom:`2px solid ${T.a1}`,paddingBottom:6,
+                fontSize:34,fontWeight:700,color:T.a1,letterSpacing:-1,
+                fontFamily:"'JetBrains Mono',monospace",
+              }}
             />
-            <button onClick={handleSave} style={{...btn({padding:"11px 18px",borderRadius:11,background:T.grad,color:"#fff",fontSize:14,boxShadow:`0 4px 14px ${T.glow}`,flexShrink:0})}}>
-              Set
-            </button>
           </div>
 
           {/* Quick presets */}
-          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:selTarget>0?14:0}}>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:16}}>
             {PRESETS.map(v=>(
-              <button key={v} onClick={()=>setInputAmt(String(v))} style={{...btn({padding:"6px 10px",borderRadius:99,border:`1.5px solid ${inputAmt===String(v)?T.a1:T.bdrSub}`,background:inputAmt===String(v)?`${T.a1}15`:"transparent",color:inputAmt===String(v)?T.a1:T.muted,fontSize:11})}}>
+              <button key={v} onClick={()=>setBudgetInput(String(v))} style={{...btn({
+                padding:"7px 12px",borderRadius:99,
+                border:`1.5px solid ${budgetInput===String(v)?T.a1:T.bdrSub}`,
+                background:budgetInput===String(v)?`${T.a1}18`:"transparent",
+                color:budgetInput===String(v)?T.a1:T.muted,fontSize:12,
+              })}}>
                 {fmt(v)}
               </button>
             ))}
           </div>
 
-          {/* Progress for selected month */}
-          {selTarget>0&&(
-            <div style={{marginTop:12}}>
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-                <span style={{fontSize:12,color:T.muted}}>{fmt(selTotal)} spent of {fmt(selTarget)}</span>
-                <span style={{fontSize:12,fontWeight:700,color:selOver?T.a4:T.a1}}>{selPct.toFixed(0)}%</span>
-              </div>
-              <div style={{height:8,borderRadius:99,background:T.isDark?"rgba(255,255,255,.08)":"rgba(0,0,0,.07)",overflow:"hidden",marginBottom:8}}>
-                <div style={{height:"100%",width:`${selPct}%`,borderRadius:99,background:selOver?T.a4:T.grad,transition:"width .7s ease"}}/>
-              </div>
-              <div style={{fontSize:13,color:selOver?T.a4:T.muted}}>
-                {selOver?`Over by ${fmt(selTotal-selTarget)}`:`${fmt(selTarget-selTotal)} remaining · ${(100-selPct).toFixed(0)}% available`}
-              </div>
-            </div>
-          )}
+          {/* SET BUTTON — big and clear */}
+          <button onClick={handleBudgetSave} style={{...btn({
+            width:"100%",padding:"16px",borderRadius:14,
+            background:T.grad,color:"#fff",fontSize:16,
+            boxShadow:`0 6px 24px ${T.glow}`,letterSpacing:.3,
+          })}}>
+            ✓ Set Budget for {monthLabel(selMonth)}
+          </button>
         </div>
 
-        {/* All months overview */}
+        {/* Progress for selected month */}
+        {selTarget>0&&(
+          <div style={{...card({marginBottom:16})}}>
+            <div style={{fontWeight:600,color:T.text,fontSize:15,marginBottom:14,fontFamily:"'DM Serif Display',serif"}}>
+              {monthLabel(selMonth)} Progress
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+              <span style={{fontSize:13,color:T.muted}}>Spent: <strong style={{color:T.text,fontFamily:"'JetBrains Mono',monospace"}}>{fmt(selTotal)}</strong></span>
+              <span style={{fontSize:13,color:T.muted}}>Budget: <strong style={{color:T.a1,fontFamily:"'JetBrains Mono',monospace"}}>{fmt(selTarget)}</strong></span>
+            </div>
+            <div style={{height:12,borderRadius:99,background:isDark?"rgba(255,255,255,.08)":"rgba(0,0,0,.07)",overflow:"hidden",marginBottom:10}}>
+              <div style={{height:"100%",width:`${selPct}%`,borderRadius:99,background:selOver?T.a4:T.grad,transition:"width .7s ease"}}/>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:13,fontWeight:600,color:selOver?T.a4:T.a1}}>{selPct.toFixed(1)}% used</span>
+              <span style={{fontSize:13,color:selOver?T.a4:T.muted,fontWeight:selOver?700:400}}>
+                {selOver?`🔴 Over by ${fmt(selTotal-selTarget)}`:`${fmt(selTarget-selTotal)} remaining`}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* All months summary */}
         {Object.keys(monthlyTargets).filter(k=>monthlyTargets[k]>0).length>0&&(
           <div style={{...card({marginBottom:16})}}>
-            <div style={{fontWeight:600,color:T.text,fontSize:15,marginBottom:14,fontFamily:"'DM Serif Display',serif"}}>All Months</div>
+            <div style={{fontWeight:600,color:T.text,fontSize:15,marginBottom:14,fontFamily:"'DM Serif Display',serif"}}>All Months Summary</div>
             {Object.entries(monthlyTargets).filter(([,v])=>v>0).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,6).map(([k,v])=>{
-              const mExp=expenses.filter(e=>{const d=new Date(e.date); const [y,m]=k.split("-"); return d.getMonth()+1===parseInt(m)&&d.getFullYear()===parseInt(y);});
+              const mExp=expenses.filter(e=>{const d=new Date(e.date);const[y,m]=k.split("-");return d.getMonth()+1===parseInt(m)&&d.getFullYear()===parseInt(y);});
               const mTotal=mExp.reduce((s,e)=>s+e.amount,0);
               const mPct=Math.min((mTotal/v)*100,100);
               const mOver=mTotal>v;
               return(
                 <div key={k} style={{marginBottom:14,paddingBottom:14,borderBottom:`1px solid ${T.bdrSub}`}}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:6,alignItems:"center"}}>
-                    <div>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:8,alignItems:"center"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
                       <span style={{fontSize:13,fontWeight:600,color:T.text}}>{monthLabel(k)}</span>
-                      {k===curKey&&<span style={{fontSize:10,padding:"1px 7px",borderRadius:99,background:`${T.a1}20`,color:T.a1,fontWeight:700,marginLeft:6}}>NOW</span>}
+                      {k===curKey&&<span style={{fontSize:10,padding:"1px 7px",borderRadius:99,background:`${T.a1}20`,color:T.a1,fontWeight:700}}>NOW</span>}
                     </div>
                     <span style={{fontSize:12,fontWeight:700,color:mOver?T.a4:T.a1,fontFamily:"'JetBrains Mono',monospace"}}>{fmt(mTotal)} / {fmt(v)}</span>
                   </div>
-                  <div style={{height:5,borderRadius:99,background:T.isDark?"rgba(255,255,255,.06)":"rgba(0,0,0,.06)",overflow:"hidden"}}>
+                  <div style={{height:6,borderRadius:99,background:isDark?"rgba(255,255,255,.06)":"rgba(0,0,0,.06)",overflow:"hidden"}}>
                     <div style={{height:"100%",width:`${mPct}%`,borderRadius:99,background:mOver?T.a4:T.grad,transition:"width .5s ease"}}/>
                   </div>
+                  <div style={{fontSize:11,color:mOver?T.a4:T.muted,marginTop:5,textAlign:"right"}}>{mPct.toFixed(0)}% used</div>
                 </div>
               );
             })}
@@ -1014,10 +1058,10 @@ export default function App() {
 
         {/* Category limits */}
         <div style={{fontSize:15,fontWeight:600,color:T.text,marginBottom:6,fontFamily:"'DM Serif Display',serif"}}>Category Limits</div>
-        <div style={{fontSize:12,color:T.muted,marginBottom:12,lineHeight:1.5}}>Set a spending limit per category for this month. Leave 0 to skip.</div>
+        <div style={{fontSize:12,color:T.muted,marginBottom:12,lineHeight:1.5}}>Set a limit per category. Tap outside the field to save.</div>
         {CATS.map(cat=>{
           const s=catData.find(c=>c.name===cat.name)||{spent:0};
-          const bv=parseFloat(lb[cat.name])||0;
+          const bv=parseFloat(catBudgets[cat.name])||0;
           const cp=bv>0?Math.min((s.spent/bv)*100,100):0;
           const co=bv>0&&s.spent>bv;
           return(
@@ -1030,15 +1074,22 @@ export default function App() {
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:6}}>
                   <span style={{fontSize:11,color:T.muted,fontFamily:"'JetBrains Mono',monospace"}}>{fmt(s.spent)} /</span>
-                  <input value={lb[cat.name]||""} type="number" placeholder="0"
-                    onChange={e=>setLb(p=>({...p,[cat.name]:e.target.value}))}
-                    onBlur={()=>saveBudgets({...budgets,[cat.name]:parseFloat(lb[cat.name])||0})}
-                    style={{width:70,background:"none",border:"none",outline:"none",borderBottom:`1.5px solid ${cat.color}50`,paddingBottom:2,color:cat.color,fontWeight:700,fontSize:13,textAlign:"right",fontFamily:"'JetBrains Mono',monospace"}}/>
+                  <input
+                    value={catBudgets[cat.name]||""}
+                    type="number" placeholder="0"
+                    onChange={e=>setCatBudgets(p=>({...p,[cat.name]:e.target.value}))}
+                    onBlur={async()=>{
+                      const v=parseFloat(catBudgets[cat.name])||0;
+                      const updated={...budgets,[cat.name]:v};
+                      await saveBudgets(updated);
+                    }}
+                    style={{width:70,background:"none",border:"none",outline:"none",borderBottom:`1.5px solid ${cat.color}60`,paddingBottom:2,color:cat.color,fontWeight:700,fontSize:13,textAlign:"right",fontFamily:"'JetBrains Mono',monospace"}}
+                  />
                 </div>
               </div>
               {bv>0&&(
                 <>
-                  <div style={{height:5,borderRadius:99,background:T.isDark?"rgba(255,255,255,.06)":"rgba(0,0,0,.06)",overflow:"hidden"}}>
+                  <div style={{height:5,borderRadius:99,background:isDark?"rgba(255,255,255,.06)":"rgba(0,0,0,.06)",overflow:"hidden"}}>
                     <div style={{height:"100%",width:`${cp}%`,borderRadius:99,transition:"width .5s ease",background:co?T.a4:cat.color}}/>
                   </div>
                   <div style={{fontSize:10,color:T.muted,marginTop:5,textAlign:"right",fontFamily:"'JetBrains Mono',monospace"}}>{cp.toFixed(0)}% utilised</div>
