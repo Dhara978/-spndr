@@ -8,7 +8,7 @@
   ✅ Charts fixed — no duplicate months, correct date calculation
   ✅ Desktop responsive — fills laptop screen
   ✅ All data saved per-month correctly
-  ✅ AI Buddy API key explained
+
 */
 
 import React,{useState,useRef,useCallback,useEffect,Component}from"react";
@@ -133,7 +133,7 @@ function ChartTip({active,payload,label,T}){
    HOME VIEW — CURRENT MONTH ONLY
    BUG FIX: Only shows thisMonth expenses, NOT all expenses
 ══════════════════════════════════════════════════════════════════════ */
-function HomeView({T,expenses,thisMonth,total,upiAmt,cashAmt,rawPct,barPct,isOver,curTarget,catData,overspendAlert,setOverspendAlert,undoEntry,undoDelete,exportMode,setExportMode,exportCSV,setTab,deleteEntry,getCatById,recurringTemplates,setShowWrapped,setShowChat,isDesk}){
+function HomeView({T,expenses,thisMonth,total,upiAmt,cashAmt,rawPct,barPct,isOver,curTarget,catData,overspendAlert,setOverspendAlert,undoEntry,undoDelete,exportMode,setExportMode,exportCSV,setTab,deleteEntry,getCatById,recurringTemplates,setShowWrapped,isDesk}){
   const C=e=>mkCard(T,e);const B=e=>mkBtn(e);
   const now=new Date();
   const mc=getMC(curTarget>0?rawPct:0,T);
@@ -209,10 +209,9 @@ function HomeView({T,expenses,thisMonth,total,upiAmt,cashAmt,rawPct,barPct,isOve
         ))}
       </div>
 
-      {/* Quick action buttons */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-        <button onClick={()=>setShowWrapped(true)} style={{...B({padding:"12px",borderRadius:14,border:`1.5px solid ${T.border}`,background:T.gradSoft,color:T.a1,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:7})}}><span>🎁</span> Monthly Wrapped</button>
-        <button onClick={()=>setShowChat(true)} style={{...B({padding:"12px",borderRadius:14,border:`1.5px solid ${T.a3}30`,background:`${T.a3}08`,color:T.a3,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:7})}}><span>🤖</span> AI Buddy</button>
+      {/* Quick action button */}
+      <div style={{marginBottom:12}}>
+        <button onClick={()=>setShowWrapped(true)} style={{...B({padding:"12px",borderRadius:14,border:`1.5px solid ${T.border}`,background:T.gradSoft,color:T.a1,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%"})}}><span>🎁</span> Monthly Wrapped</button>
       </div>
 
       {/* Category strip */}
@@ -1206,103 +1205,9 @@ function WrappedOverlay({T,expenses,monthlyTargets,allCats,onClose}){
 }
 
 /* ══════════════════════════════════════════════════════════════════════
-   AI CHAT BUDDY
-   ─────────────────────────────────────────────────────────────────────
-   WHAT IS THE ANTHROPIC API KEY?
-   ─────────────────────────────────────────────────────────────────────
-   The AI Chat Buddy uses Anthropic's Claude AI model to answer your
-   spending questions. Claude is NOT free — it requires an API key.
-
-   How to get it (FREE):
-   1. Go to console.anthropic.com
-   2. Sign up (free — no credit card needed for free tier)
-   3. You get $5 free credit — enough for hundreds of chats
-   4. Click "API Keys" → "Create Key"
-   5. Copy the key (looks like: sk-ant-api03-xxxxxx)
-   6. Paste it in Settings → AI Buddy section
-
-   WHY is it stored only in memory (not saved to database)?
-   Because your API key is like a password — if it's saved in our
-   database, anyone who sees your data could use your credits. So we
-   ask you to enter it each session. It stays only in your browser
-   memory and disappears when you close the app.
-══════════════════════════════════════════════════════════════════════ */
-function ChatBuddy({T,expenses,monthlyTargets,allCats,onClose,anthropicKey,showToast}){
-  const [msgs,setMsgs]=useState([{role:"assistant",text:"Hey! 👋 I'm your Spndr AI buddy. Ask me anything about your spending — like 'where am I wasting money?' or 'how did I do this month?'"}]);
-  const [inp,setInp]=useState("");const [loading,setLoading]=useState(false);
-  const bottomRef=useRef(null);
-  useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"});},[msgs,loading]);
-  const curKey=monthKey();const thisM=expForMonth(expenses,curKey);
-  const total=thisM.reduce((s,e)=>s+(e.amount||0),0);
-  const budget=monthlyTargets[curKey]||0;
-  const catSpend={};thisM.forEach(e=>{catSpend[e.category]=(catSpend[e.category]||0)+(e.amount||0);});
-  const topCats=Object.entries(catSpend).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([id,amt])=>{const c=(allCats||[]).find(x=>x.id===id)||{name:id,emoji:"📌"};return`${c.emoji}${c.name}: ${fmt(amt)}`;}).join(", ");
-  const ctx=`You are a friendly Indian personal finance assistant called Spndr AI. The user's this month data: Total spent ${fmt(total)}, Budget ${budget>0?fmt(budget):"not set"}, Top categories: ${topCats||"no data yet"}, Total transactions this month: ${thisM.length}. Respond in 2-3 short sentences. Be warm, specific, and use ₹ for rupees. Use 1-2 emojis max. Give actionable advice based on THEIR actual numbers.`;
-  const send=async()=>{
-    if(!inp.trim())return;
-    if(!anthropicKey.trim()){showToast("Add your Anthropic API key in Settings first.","warn");return;}
-    const userMsg=inp.trim();setInp("");
-    setMsgs(p=>[...p,{role:"user",text:userMsg}]);
-    setLoading(true);
-    try{
-      const res=await fetch("https://api.anthropic.com/v1/messages",{
-        method:"POST",
-        headers:{"Content-Type":"application/json","x-api-key":anthropicKey,"anthropic-version":"2023-06-01"},
-        body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:256,system:ctx,messages:[{role:"user",content:userMsg}]})
-      });
-      if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err.error?.message||`HTTP ${res.status}`);}
-      const data=await res.json();
-      const reply=data.content?.[0]?.text||"I couldn't think of a response — try again!";
-      setMsgs(p=>[...p,{role:"assistant",text:reply}]);
-    }catch(e){
-      setMsgs(p=>[...p,{role:"assistant",text:`Error: ${e.message}. Check your API key in Settings.`}]);
-    }
-    setLoading(false);
-  };
-  const quickQ=["Where am I wasting money?","How did I do this month?","Give me a saving tip!","Which category should I cut?"];
-  return(
-    <div style={{position:"fixed",inset:0,zIndex:300,background:"rgba(0,0,0,.7)",backdropFilter:"blur(6px)",display:"flex",alignItems:"flex-end",justifyContent:"center",padding:"16px"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div style={{width:"min(520px,100%)",background:T.isDark?"#0d1120":"#fff",borderRadius:"20px 20px 16px 16px",overflow:"hidden",border:`1px solid ${T.border}`,maxHeight:"82vh",display:"flex",flexDirection:"column",animation:"fadeUp .3s ease"}}>
-        <div style={{background:T.grad,padding:"14px 18px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
-          <div>
-            <div style={{fontFamily:"'DM Serif Display',serif",fontSize:18,color:"#fff"}}>🤖 Spndr AI Buddy</div>
-            <div style={{fontSize:11,color:"rgba(255,255,255,.75)"}}>Powered by Claude · Ask about your spending</div>
-          </div>
-          <button onClick={onClose} style={{background:"rgba(255,255,255,.2)",border:"none",width:28,height:28,borderRadius:"50%",color:"#fff",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
-        </div>
-        <div style={{flex:1,overflowY:"auto",padding:"16px",display:"flex",flexDirection:"column",gap:10}}>
-          {msgs.map((msg,i)=>(
-            <div key={i} style={{display:"flex",justifyContent:msg.role==="user"?"flex-end":"flex-start",animation:"fadeIn .3s ease"}}>
-              <div style={{maxWidth:"82%",padding:"10px 14px",borderRadius:msg.role==="user"?"16px 16px 4px 16px":"16px 16px 16px 4px",background:msg.role==="user"?T.grad:T.isDark?"rgba(255,255,255,.07)":"rgba(0,0,0,.06)",color:msg.role==="user"?"#fff":T.text,fontSize:14,lineHeight:1.6,boxShadow:msg.role==="user"?`0 4px 16px ${T.glow}`:"none"}}>
-                {msg.text}
-              </div>
-            </div>
-          ))}
-          {loading&&(
-            <div style={{display:"flex",justifyContent:"flex-start"}}>
-              <div style={{padding:"12px 16px",borderRadius:"16px 16px 16px 4px",background:T.isDark?"rgba(255,255,255,.07)":"rgba(0,0,0,.06)",display:"flex",gap:5,alignItems:"center"}}>
-                {[0,1,2].map(i=><div key={i} style={{width:7,height:7,borderRadius:"50%",background:T.a1,animation:`chatBounce .8s ease ${i*0.15}s infinite`}}/>)}
-              </div>
-            </div>
-          )}
-          <div ref={bottomRef}/>
-        </div>
-        <div style={{padding:"0 12px 8px",display:"flex",gap:6,overflowX:"auto",scrollbarWidth:"none",flexShrink:0}}>
-          {quickQ.map(q=><button key={q} onClick={()=>setInp(q)} style={{...mkBtn({flexShrink:0,padding:"6px 12px",borderRadius:99,border:`1px solid ${T.border}`,background:`${T.a1}10`,color:T.a1,fontSize:11,whiteSpace:"nowrap"})}}>{q}</button>)}
-        </div>
-        <div style={{padding:"8px 12px 16px",borderTop:`1px solid ${T.bdrSub}`,display:"flex",gap:8,flexShrink:0}}>
-          <input value={inp} onChange={e=>setInp(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()} placeholder="Ask about your spending…" style={{flex:1,background:T.input,border:`1px solid ${T.bdrSub}`,borderRadius:12,padding:"11px 14px",color:T.text,fontSize:14,fontFamily:"'DM Sans',sans-serif",outline:"none"}}/>
-          <button onClick={send} disabled={loading||!inp.trim()} style={{...mkBtn({width:44,height:44,borderRadius:12,background:inp.trim()&&!loading?T.grad:T.input,color:inp.trim()&&!loading?"#fff":T.muted,fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:inp.trim()&&!loading?"pointer":"not-allowed"})}}>→</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════════════
    SETTINGS VIEW
 ══════════════════════════════════════════════════════════════════════ */
-function SettingsView({T,user,expenses,total,isDark,setIsDark,pinVal,setPinVal,locked,setLocked,pinMode,setPinMode,pinInput,setPinInput,pinError,setPinError,pinSetup,setPinSetup,handlePinDigit,handlePinBack,removePin,doSignOut,persist,catLimitsAll,monthlyTargets,customCats,notifEnabled,setNotifEnabled,showToast,recurringTemplates,jars,anthropicKey,setAnthropicKey,isDesk}){
+function SettingsView({T,user,expenses,total,isDark,setIsDark,pinVal,setPinVal,locked,setLocked,pinMode,setPinMode,pinInput,setPinInput,pinError,setPinError,pinSetup,setPinSetup,handlePinDigit,handlePinBack,removePin,doSignOut,persist,catLimitsAll,monthlyTargets,customCats,notifEnabled,setNotifEnabled,showToast,recurringTemplates,jars,isDesk}){
   const C=e=>mkCard(T,e);const B=e=>mkBtn(e);
   const [showKey,setShowKey]=useState(false);
   return(
@@ -1318,31 +1223,6 @@ function SettingsView({T,user,expenses,total,isDark,setIsDark,pinVal,setPinVal,l
             <div style={{fontSize:12,color:T.muted,marginTop:3}}>{(expenses||[]).length} expenses · {(jars||[]).length} jars</div>
           </div>
         </div>
-      </div>
-
-      {/* AI Buddy API Key */}
-      <div style={{...C({marginBottom:14,padding:"20px"})}}>
-        <div style={{fontWeight:600,color:T.text,fontSize:15,marginBottom:4,fontFamily:"'DM Serif Display',serif"}}>🤖 AI Buddy API Key</div>
-        <div style={{fontSize:12,color:T.muted,marginBottom:6,lineHeight:1.7}}>
-          The AI Chat Buddy uses <strong style={{color:T.a1}}>Anthropic's Claude AI</strong> — it is NOT free.
-        </div>
-        <div style={{...C({marginBottom:12,padding:"12px",borderColor:T.border,background:`${T.a1}06`})}}>
-          <div style={{fontSize:12,color:T.sub,lineHeight:1.7}}>
-            <strong style={{color:T.text}}>How to get your key (free $5 credit):</strong><br/>
-            1. Go to <strong style={{color:T.a1}}>console.anthropic.com</strong><br/>
-            2. Sign up → no credit card needed for free tier<br/>
-            3. Click API Keys → Create Key<br/>
-            4. Paste it below — looks like: <span style={{fontFamily:"'JetBrains Mono',monospace",color:T.a3,fontSize:11}}>sk-ant-api03-xxx</span>
-          </div>
-        </div>
-        <div style={{fontSize:12,color:T.muted,marginBottom:10,lineHeight:1.6,padding:"8px 12px",borderRadius:9,background:`${T.a4}08`,border:`1px solid ${T.a4}20`}}>
-          🔒 Key is stored <strong style={{color:T.text}}>only in memory</strong> (not saved to database) — it disappears when you close the app. This protects your credits.
-        </div>
-        <div style={{position:"relative"}}>
-          <input type={showKey?"text":"password"} value={anthropicKey} onChange={e=>setAnthropicKey(e.target.value)} placeholder="sk-ant-api03-…" style={{width:"100%",background:T.input,border:`1.5px solid ${anthropicKey?T.a3:T.bdrSub}`,borderRadius:12,padding:"11px 44px 11px 14px",color:T.text,fontSize:13,fontFamily:"'JetBrains Mono',monospace",outline:"none"}}/>
-          <button type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>setShowKey(p=>!p)} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:T.muted,fontSize:16,padding:4}}>{showKey?"🙈":"👁️"}</button>
-        </div>
-        {anthropicKey&&<div style={{marginTop:8,fontSize:12,color:T.a3,fontWeight:600}}>✅ API key ready — tap AI Buddy on Home screen</div>}
       </div>
 
       {/* Notifications */}
@@ -1472,8 +1352,7 @@ function AppInner(){
   const [toast,setToast]=useState(null);const [undoEntry,setUndoEntry]=useState(null);
   const [exportMode,setExportMode]=useState(false);const [overspendAlert,setOverspendAlert]=useState(null);
   const [notifEnabled,setNotifEnabled]=useState(false);
-  const [showWrapped,setShowWrapped]=useState(false);const [showChat,setShowChat]=useState(false);
-  const [anthropicKey,setAnthropicKey]=useState("");
+  const [showWrapped,setShowWrapped]=useState(false);
   const recRef=useRef(null);const undoTimer=useRef(null);const notifSent=useRef({});
 
   const allCats=[...DEF_CATS,...(customCats||[])];
@@ -1582,7 +1461,7 @@ function AppInner(){
     setAForm({username:"",password:"",confirm:""});setAErr("");setAInfo("");
     setShowPw({password:false,confirm:false});setPinVal("");setLocked(false);setPinMode("none");setPinInput("");setPinError("");
     setCatLimitsAll({});setMonthlyTargets({});setCustomCats([]);setRecurringTemplates([]);setJars([]);
-    setShowWrapped(false);setShowChat(false);notifSent.current={};
+    setShowWrapped(false);notifSent.current={};
   };
 
   const toggleMode=async()=>{const n=!isDark;setIsDark(n);if(user)await persist(user.username,expenses,catLimitsAll,monthlyTargets,n,pinVal,customCats,recurringTemplates,jars);};
@@ -1869,11 +1748,11 @@ function AppInner(){
           {/* Main content area */}
           <div style={{flex:1,overflowY:"auto",minWidth:0}}>
             <div style={{maxWidth:760,margin:"0 auto",paddingTop:28}}>
-              {tab==="home"&&<HomeView T={T} expenses={expenses} thisMonth={thisMonth} total={total} upiAmt={upiAmt} cashAmt={cashAmt} rawPct={rawPct} barPct={barPct} isOver={isOver} curTarget={curTarget} catData={catData} overspendAlert={overspendAlert} setOverspendAlert={setOverspendAlert} undoEntry={undoEntry} undoDelete={undoDelete} exportMode={exportMode} setExportMode={setExportMode} exportCSV={exportCSV} setTab={setTab} deleteEntry={deleteEntry} getCatById={getCatById} recurringTemplates={recurringTemplates} setShowWrapped={setShowWrapped} setShowChat={setShowChat} isDesk={isDesk}/>}
+              {tab==="home"&&<HomeView T={T} expenses={expenses} thisMonth={thisMonth} total={total} upiAmt={upiAmt} cashAmt={cashAmt} rawPct={rawPct} barPct={barPct} isOver={isOver} curTarget={curTarget} catData={catData} overspendAlert={overspendAlert} setOverspendAlert={setOverspendAlert} undoEntry={undoEntry} undoDelete={undoDelete} exportMode={exportMode} setExportMode={setExportMode} exportCSV={exportCSV} setTab={setTab} deleteEntry={deleteEntry} getCatById={getCatById} recurringTemplates={recurringTemplates} setShowWrapped={setShowWrapped} isDesk={isDesk}/>}
               {tab==="add"&&<AddView T={T} form={form} setForm={setForm} addExpense={addExpense} allCats={allCats} getCatById={getCatById} showCatMgr={showCatMgr} setShowCatMgr={setShowCatMgr} customCats={customCats} addCustomCat={addCustomCat} delCustomCat={delCustomCat} newCatName={newCatName} setNewCatName={setNewCatName} newCatEmoji={newCatEmoji} setNewCatEmoji={setNewCatEmoji} newCatColor={newCatColor} setNewCatColor={setNewCatColor} voiceLang={voiceLang} setVoiceLang={setVoiceLang} voiceText={voiceText} transText={transText} listening={listening} vLoad={vLoad} startVoice={startVoice} stopVoice={stopVoice} showVHelp={showVHelp} setShowVHelp={setShowVHelp} recurringTemplates={recurringTemplates} setRecurringTemplates={setRecurringTemplates} showToast={showToast} persist={persist} user={user} expenses={expenses} catLimitsAll={catLimitsAll} monthlyTargets={monthlyTargets} isDark={isDark} pinVal={pinVal} customCatsRaw={customCats} jars={jars} isDesk={isDesk}/>}
               {tab==="charts"&&<ChartsView T={T} expenses={expenses} period={period} setPeriod={setPeriod} allCats={allCats} isDesk={isDesk}/>}
               {tab==="budget"&&<BudgetView T={T} expenses={expenses} allCats={allCats} monthlyTargets={monthlyTargets} saveMonthTarget={saveMonthTarget} catLimitsAll={catLimitsAll} saveCatLimitsAll={saveCatLimitsAll} showToast={showToast} recurringTemplates={recurringTemplates} setRecurringTemplates={setRecurringTemplates} persist={persist} user={user} isDark={isDark} pinVal={pinVal} customCats={customCats} jars={jars} setJars={setJars} isDesk={isDesk}/>}
-              {tab==="settings"&&<SettingsView T={T} user={user} expenses={expenses} total={total} isDark={isDark} setIsDark={setIsDark} pinVal={pinVal} setPinVal={setPinVal} locked={locked} setLocked={setLocked} pinMode={pinMode} setPinMode={setPinMode} pinInput={pinInput} setPinInput={setPinInput} pinError={pinError} setPinError={setPinError} pinSetup={pinSetup} setPinSetup={setPinSetup} handlePinDigit={handlePinDigit} handlePinBack={handlePinBack} removePin={removePin} doSignOut={doSignOut} persist={persist} catLimitsAll={catLimitsAll} monthlyTargets={monthlyTargets} customCats={customCats} notifEnabled={notifEnabled} setNotifEnabled={setNotifEnabled} showToast={showToast} recurringTemplates={recurringTemplates} jars={jars} anthropicKey={anthropicKey} setAnthropicKey={setAnthropicKey} isDesk={isDesk}/>}
+              {tab==="settings"&&<SettingsView T={T} user={user} expenses={expenses} total={total} isDark={isDark} setIsDark={setIsDark} pinVal={pinVal} setPinVal={setPinVal} locked={locked} setLocked={setLocked} pinMode={pinMode} setPinMode={setPinMode} pinInput={pinInput} setPinInput={setPinInput} pinError={pinError} setPinError={setPinError} pinSetup={pinSetup} setPinSetup={setPinSetup} handlePinDigit={handlePinDigit} handlePinBack={handlePinBack} removePin={removePin} doSignOut={doSignOut} persist={persist} catLimitsAll={catLimitsAll} monthlyTargets={monthlyTargets} customCats={customCats} notifEnabled={notifEnabled} setNotifEnabled={setNotifEnabled} showToast={showToast} recurringTemplates={recurringTemplates} jars={jars} isDesk={isDesk}/>}
             </div>
           </div>
         </div>
@@ -1895,11 +1774,11 @@ function AppInner(){
           </div>
           {/* Mobile page content */}
           <div style={{position:"relative",zIndex:1,paddingTop:14}}>
-            {tab==="home"&&<HomeView T={T} expenses={expenses} thisMonth={thisMonth} total={total} upiAmt={upiAmt} cashAmt={cashAmt} rawPct={rawPct} barPct={barPct} isOver={isOver} curTarget={curTarget} catData={catData} overspendAlert={overspendAlert} setOverspendAlert={setOverspendAlert} undoEntry={undoEntry} undoDelete={undoDelete} exportMode={exportMode} setExportMode={setExportMode} exportCSV={exportCSV} setTab={setTab} deleteEntry={deleteEntry} getCatById={getCatById} recurringTemplates={recurringTemplates} setShowWrapped={setShowWrapped} setShowChat={setShowChat} isDesk={false}/>}
+            {tab==="home"&&<HomeView T={T} expenses={expenses} thisMonth={thisMonth} total={total} upiAmt={upiAmt} cashAmt={cashAmt} rawPct={rawPct} barPct={barPct} isOver={isOver} curTarget={curTarget} catData={catData} overspendAlert={overspendAlert} setOverspendAlert={setOverspendAlert} undoEntry={undoEntry} undoDelete={undoDelete} exportMode={exportMode} setExportMode={setExportMode} exportCSV={exportCSV} setTab={setTab} deleteEntry={deleteEntry} getCatById={getCatById} recurringTemplates={recurringTemplates} setShowWrapped={setShowWrapped} isDesk={false}/>}
             {tab==="add"&&<AddView T={T} form={form} setForm={setForm} addExpense={addExpense} allCats={allCats} getCatById={getCatById} showCatMgr={showCatMgr} setShowCatMgr={setShowCatMgr} customCats={customCats} addCustomCat={addCustomCat} delCustomCat={delCustomCat} newCatName={newCatName} setNewCatName={setNewCatName} newCatEmoji={newCatEmoji} setNewCatEmoji={setNewCatEmoji} newCatColor={newCatColor} setNewCatColor={setNewCatColor} voiceLang={voiceLang} setVoiceLang={setVoiceLang} voiceText={voiceText} transText={transText} listening={listening} vLoad={vLoad} startVoice={startVoice} stopVoice={stopVoice} showVHelp={showVHelp} setShowVHelp={setShowVHelp} recurringTemplates={recurringTemplates} setRecurringTemplates={setRecurringTemplates} showToast={showToast} persist={persist} user={user} expenses={expenses} catLimitsAll={catLimitsAll} monthlyTargets={monthlyTargets} isDark={isDark} pinVal={pinVal} customCatsRaw={customCats} jars={jars} isDesk={false}/>}
             {tab==="charts"&&<ChartsView T={T} expenses={expenses} period={period} setPeriod={setPeriod} allCats={allCats} isDesk={false}/>}
             {tab==="budget"&&<BudgetView T={T} expenses={expenses} allCats={allCats} monthlyTargets={monthlyTargets} saveMonthTarget={saveMonthTarget} catLimitsAll={catLimitsAll} saveCatLimitsAll={saveCatLimitsAll} showToast={showToast} recurringTemplates={recurringTemplates} setRecurringTemplates={setRecurringTemplates} persist={persist} user={user} isDark={isDark} pinVal={pinVal} customCats={customCats} jars={jars} setJars={setJars} isDesk={false}/>}
-            {tab==="settings"&&<SettingsView T={T} user={user} expenses={expenses} total={total} isDark={isDark} setIsDark={setIsDark} pinVal={pinVal} setPinVal={setPinVal} locked={locked} setLocked={setLocked} pinMode={pinMode} setPinMode={setPinMode} pinInput={pinInput} setPinInput={setPinInput} pinError={pinError} setPinError={setPinError} pinSetup={pinSetup} setPinSetup={setPinSetup} handlePinDigit={handlePinDigit} handlePinBack={handlePinBack} removePin={removePin} doSignOut={doSignOut} persist={persist} catLimitsAll={catLimitsAll} monthlyTargets={monthlyTargets} customCats={customCats} notifEnabled={notifEnabled} setNotifEnabled={setNotifEnabled} showToast={showToast} recurringTemplates={recurringTemplates} jars={jars} anthropicKey={anthropicKey} setAnthropicKey={setAnthropicKey} isDesk={false}/>}
+            {tab==="settings"&&<SettingsView T={T} user={user} expenses={expenses} total={total} isDark={isDark} setIsDark={setIsDark} pinVal={pinVal} setPinVal={setPinVal} locked={locked} setLocked={setLocked} pinMode={pinMode} setPinMode={setPinMode} pinInput={pinInput} setPinInput={setPinInput} pinError={pinError} setPinError={setPinError} pinSetup={pinSetup} setPinSetup={setPinSetup} handlePinDigit={handlePinDigit} handlePinBack={handlePinBack} removePin={removePin} doSignOut={doSignOut} persist={persist} catLimitsAll={catLimitsAll} monthlyTargets={monthlyTargets} customCats={customCats} notifEnabled={notifEnabled} setNotifEnabled={setNotifEnabled} showToast={showToast} recurringTemplates={recurringTemplates} jars={jars} isDesk={false}/>}
           </div>
           {/* Mobile bottom nav */}
           <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,zIndex:100,backdropFilter:"blur(28px)",WebkitBackdropFilter:"blur(28px)",background:T.nav,borderTop:`1px solid ${T.divider}`,padding:"10px 6px 26px"}}>
@@ -1924,7 +1803,6 @@ function AppInner(){
 
       {/* Overlays */}
       {showWrapped&&<WrappedOverlay T={T} expenses={expenses} monthlyTargets={monthlyTargets} allCats={allCats} onClose={()=>setShowWrapped(false)}/>}
-      {showChat&&<ChatBuddy T={T} expenses={expenses} monthlyTargets={monthlyTargets} allCats={allCats} onClose={()=>setShowChat(false)} anthropicKey={anthropicKey} showToast={showToast}/>}
       {toast&&<ToastEl T={T} toast={toast}/>}
     </div>
   );
