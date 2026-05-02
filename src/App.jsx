@@ -1,15 +1,3 @@
-/*
-  SPNDR — Smart Personal Expense Tracker
-  All bugs fixed:
-  ✅ Home shows ONLY current month expenses
-  ✅ Category limits are PER-MONTH (March limits don't appear in April)
-  ✅ Budget page shows full month report (expenses + category usage + chart)
-  ✅ OCR scanner improved with better patterns
-  ✅ Charts fixed — no duplicate months, correct date calculation
-  ✅ Desktop responsive — fills laptop screen
-  ✅ All data saved per-month correctly
-
-*/
 
 import React,{useState,useRef,useCallback,useEffect,Component}from"react";
 import{createClient}from"@supabase/supabase-js";
@@ -52,6 +40,18 @@ const DEF_CATS=[
   {id:"education",name:"Education",emoji:"🎓",color:"#3b82f6",isDefault:true},
   {id:"other",name:"Other",emoji:"📌",color:"#6b7280",isDefault:true},
 ];
+
+/* ── SUBCATEGORIES ─────────────────────────────────────────────────── */
+const DEFAULT_SUBCATS = {
+  food: ["Breakfast", "Lunch", "Dinner", "Snacks", "Restaurant", "Groceries", "Chai", "Sweets"],
+  transport: ["Auto", "Cab/Ola", "Bus", "Metro", "Petrol", "Bike", "Train"],
+  shopping: ["Clothes", "Electronics", "Online Shopping", "Accessories", "Groceries"],
+  entertainment: ["Movie", "Gaming", "OTT/Netflix", "Party", "Music"],
+  health: ["Medicine", "Doctor Visit", "Gym", "Pharmacy", "Tests"],
+  bills: ["Rent", "Electricity", "Internet", "Mobile Recharge", "Water", "Gas"],
+  education: ["Fees", "Books", "Coaching", "Stationery"],
+  other: ["Miscellaneous", "Gift", "Travel"]
+};
 const CAT_COLORS=["#f97316","#0ea5e9","#8b5cf6","#ec4899","#10b981","#f59e0b","#3b82f6","#6b7280","#ef4444","#14b8a6","#a855f7","#f43f5e","#22c55e","#eab308","#06b6d4","#84cc16"];
 const CAT_EMOJIS=["🍕","🚗","👗","🎵","💊","💡","📖","🏠","✈️","🎯","💰","🎁","🐕","🌱","☕","🎭","🏋️","💻","📱","🎮","🍷","🧴","🎪","🏦"];
 const JAR_EMOJIS=["🏖","🏍","🎄","💍","🏠","✈️","🎓","💻","📱","🎮","🐶","🌴","🎁","💎","🚗","⛺"];
@@ -61,6 +61,8 @@ const PRESETS=[2000,3000,5000,8000,10000,15000,20000,25000,30000,50000];
 const CAT_KW={Food:["food","eat","lunch","dinner","breakfast","restaurant","cafe","coffee","snack","grocery","khana","nashta","chai","sabji","roti","dal","rice","milk","pizza","burger","biryani","jaman","bhojan"],Transport:["transport","travel","auto","cab","taxi","uber","ola","bus","train","metro","petrol","diesel","fuel","rickshaw","bike","ticket","fare","car","scooter","flight","toll","parking"],Shopping:["shopping","clothes","shirt","pant","dress","shoes","amazon","flipkart","buy","purchase","market","bazaar","mall","online","kapda","saree","watch","bag","mobile","laptop"],Entertainment:["movie","cinema","show","concert","game","gaming","netflix","hotstar","youtube","ott","fun","play","party","birthday","celebration","spotify","music","cricket","football"],Health:["health","medicine","doctor","hospital","clinic","pharmacy","medical","tablet","gym","fitness","checkup","dava","dawai","blood","xray","scan","yoga","vitamin"],Bills:["bill","electricity","wifi","internet","mobile","recharge","phone","water","gas","rent","light","bijli","paani","dth","cable","insurance","emi","loan","tax"],Education:["education","school","college","tuition","course","book","fees","class","study","exam","coaching","notes","pen","paper","library"]};
 const reqNotif=async()=>{if(!("Notification"in window))return false;if(Notification.permission==="granted")return true;if(Notification.permission!=="denied"){const p=await Notification.requestPermission();return p==="granted";}return false;};
 const sendNotif=(t,b)=>{if("Notification"in window&&Notification.permission==="granted")new Notification(t,{body:b,icon:"/icon-192.png"});};
+
+
 
 /* ── STYLE HELPERS ─────────────────────────────────────────────────── */
 const mkCard=(T,e={})=>({background:T.card,backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",border:`1px solid ${T.bdrSub}`,borderRadius:16,padding:18,boxShadow:T.isDark?"0 4px 24px rgba(0,0,0,.35)":"0 2px 16px rgba(0,0,0,.07),0 1px 0 rgba(255,255,255,.9) inset",...e});
@@ -280,11 +282,13 @@ function HomeView({T,expenses,thisMonth,total,upiAmt,cashAmt,rawPct,barPct,isOve
             <div style={{width:42,height:42,borderRadius:12,flexShrink:0,background:`${cat.color}15`,border:`1px solid ${cat.color}28`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{cat.emoji}</div>
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontWeight:600,fontSize:14,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{e.description||cat.name}</div>
-              <div style={{fontSize:11,color:T.muted,display:"flex",gap:6,marginTop:3}}>
-                <span>{cat.name}</span><span>·</span>
-                <span>{d.toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</span>
-                {e.recurring&&<span style={{color:T.a3}}>🔁</span>}
-              </div>
+                     <div style={{fontSize:11,color:T.muted,display:"flex",gap:6,marginTop:3}}>
+          <span>{cat.name}</span>
+          {e.subcategory && <span>· {e.subcategory}</span>}
+          <span>·</span>
+          <span>{d.toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</span>
+          {e.recurring&&<span style={{color:T.a3}}>🔁</span>}
+        </div>
             </div>
             <div style={{textAlign:"right",flexShrink:0,display:"flex",alignItems:"center",gap:8}}>
               <div>
@@ -455,6 +459,32 @@ function AddView({T,form,setForm,addExpense,allCats,getCatById,showCatMgr,setSho
             </button>
           ))}
         </div>
+      </div>
+
+      {/* SUBCATEGORY SELECTOR - NEW */}
+      <div style={{...C({marginBottom:12})}}>
+        <div style={{fontSize:11,color:T.muted,letterSpacing:1.4,marginBottom:8,fontWeight:600}}>
+          SUB CATEGORY
+        </div>
+        <select 
+          value={form.subcategory || ""} 
+          onChange={e => setForm(p => ({...p, subcategory: e.target.value}))}
+          style={{
+            width:"100%", 
+            background:T.input, 
+            border:`1.5px solid ${T.border}`, 
+            borderRadius:12, 
+            padding:"14px 16px", 
+            color:T.text, 
+            fontSize:15,
+            fontFamily:"'DM Sans',sans-serif"
+          }}
+        >
+          <option value="">Select Subcategory (Optional)</option>
+          {(DEFAULT_SUBCATS[form.category] || ["Other"]).map(sub => (
+            <option key={sub} value={sub}>{sub}</option>
+          ))}
+        </select>
       </div>
 
       {/* Description + Date */}
@@ -1341,7 +1371,7 @@ function AppInner(){
   const [recurringTemplates,setRecurringTemplates]=useState([]);
   const [jars,setJars]=useState([]);
   /* Add form */
-  const [form,setForm]=useState({amount:"",category:"food",description:"",type:"UPI",date:todayStr()});
+  const [form,setForm]=useState({amount:"",category:"food",subcategory:"",description:"",type:"UPI",date:todayStr()});
   const [showCatMgr,setShowCatMgr]=useState(false);
   const [newCatName,setNewCatName]=useState("");const [newCatEmoji,setNewCatEmoji]=useState("🏷️");const [newCatColor,setNewCatColor]=useState(CAT_COLORS[0]);
   /* Voice */
@@ -1505,13 +1535,31 @@ function AppInner(){
   };
 
   /* Expenses */
-  const addExpense=async()=>{
-    const amt=parseFloat(form.amount);if(!amt||amt<=0){showToast("Enter a valid amount.","warn");return;}
-    const entry={id:Date.now(),amount:amt,category:form.category,description:form.description||getCatById(form.category).name,type:form.type,date:new Date(form.date).toISOString()};
-    const newExp=[entry,...(expenses||[])];setExpenses(newExp);showToast("Expense recorded.");
-    if(user)await persist(user.username,newExp,catLimitsAll,monthlyTargets,isDark,pinVal,customCats,recurringTemplates,jars);
-    setForm({amount:"",category:"food",description:"",type:"UPI",date:todayStr()});setTab("home");
+ const addExpense=async()=>{
+  const amt=parseFloat(form.amount);
+  if(!amt||amt<=0){showToast("Enter a valid amount.","warn");return;}
+  
+  const entry={
+    id:Date.now(),
+    amount:amt,
+    category:form.category,
+    subcategory:form.subcategory || "",        // ← NEW
+    description:form.description||getCatById(form.category).name,
+    type:form.type,
+    date:new Date(form.date).toISOString()
   };
+  
+  const newExp=[entry,...(expenses||[])];
+  setExpenses(newExp);
+  showToast("Expense recorded.");
+  
+  if(user)await persist(user.username,newExp,catLimitsAll,monthlyTargets,isDark,pinVal,customCats,recurringTemplates,jars);
+  
+  // Reset form
+  setForm({amount:"",category:"food",subcategory:"",description:"",type:"UPI",date:todayStr()});
+  setTab("home");
+};
+
   const deleteEntry=async id=>{
     const entry=(expenses||[]).find(e=>e.id===id);if(!entry)return;
     const newExp=(expenses||[]).filter(e=>e.id!==id);setExpenses(newExp);
@@ -1532,7 +1580,14 @@ function AppInner(){
     else if(range==="month"){filtered=thisMonth;fn="spndr_"+n2.toLocaleDateString("en",{month:"short",year:"numeric"}).replace(" ","_");}
     else{filtered=(expenses||[]).filter(e=>new Date(e.date).getFullYear()===n2.getFullYear());fn="spndr_"+n2.getFullYear();}
     if(!filtered.length){showToast("No data for this period.","warn");return;}
-    const rows=[["Date","Description","Category","Amount","Payment"],...filtered.map(e=>[new Date(e.date).toLocaleDateString("en-IN"),`"${e.description}"`,getCatById(e.category).name,e.amount,e.type]),["","","TOTAL",filtered.reduce((s,e)=>s+e.amount,0),""]];
+    const rows=[["Date","Description","Category","Subcategory","Amount","Payment"],...filtered.map(e=>[
+  new Date(e.date).toLocaleDateString("en-IN"),
+  `"${e.description}"`,
+  getCatById(e.category).name,
+  e.subcategory || "-",
+  e.amount,
+  e.type
+])];
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([rows.map(r=>r.join(",")).join("\n")],{type:"text/csv"}));
     a.download=fn+".csv";a.click();setExportMode(false);showToast(`Exported ${filtered.length} entries!`);
   };
